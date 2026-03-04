@@ -1,14 +1,15 @@
-#include "thermal_image_processor.h"
+#include "thermal_processor.h"
+#include "config.h"
 #include <string.h>
 
 /**
  * @brief Helper: Clamp pixel coordinates to image bounds
  */
-static inline uint8_t pixel_clamp(const uint8_t img[IMAGE_HEIGHT][IMAGE_WIDTH], int y, int x) {
+static inline uint8_t pixel_clamp(const uint8_t img[HEIGHT][WIDTH], int y, int x) {
     if (y < 0) y = 0;
-    else if (y >= IMAGE_HEIGHT) y = IMAGE_HEIGHT - 1;
+    else if (y >= HEIGHT) y = HEIGHT - 1;
     if (x < 0) x = 0;
-    else if (x >= IMAGE_WIDTH) x = IMAGE_WIDTH - 1;
+    else if (x >= WIDTH) x = WIDTH - 1;
     return img[y][x];
 }
 
@@ -35,12 +36,39 @@ void thermal_processor_init(ThermalProcessor* processor) {
     processor->background_update_counter = 0;
 }
 
-void update_background(ThermalProcessor* processor, const uint8_t current_frame[IMAGE_HEIGHT][IMAGE_WIDTH], uint8_t alpha) {
+/**
+ * @brief Convert float thermal data to 8-bit grayscale image
+ * Maps temperature range to 0-255 for image processing
+ */
+void convert_to_8bit_image(const float* thermal_frame, uint8_t image[IMAGE_HEIGHT][IMAGE_WIDTH]) {
+    for (int i = 0; i < 768; i++) {
+        float temp = thermal_frame[i];
+        
+        // Clamp temperature to valid range
+        if (temp < TEMP_MIN) temp = TEMP_MIN;
+        if (temp > TEMP_MAX) temp = TEMP_MAX;
+        
+        // Normalize to 0-1 range
+        float normalized = (temp - TEMP_MIN) / TEMP_RANGE;
+        
+        // Convert to 8-bit
+        uint8_t pixel_value = (uint8_t)(normalized * 255.0f);
+        
+        // Map 1D index to 2D coordinates (row-major)
+        // MLX90640 is 32x24 (width x height)
+        int y = i / IMAGE_WIDTH;
+        int x = i % IMAGE_WIDTH;
+        
+        image[y][x] = pixel_value;
+    }
+}
+
+void update_background(ThermalProcessor* processor, const uint8_t current_frame[HEIGHT][WIDTH], uint8_t alpha) {
     if (!processor || !current_frame) return;
     
     // Exponential moving average: background = (1 - alpha/255) * background + (alpha/255) * current
-    for (int y = 0; y < IMAGE_HEIGHT; y++) {
-        for (int x = 0; x < IMAGE_WIDTH; x++) {
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
             uint32_t bg = processor->background[y][x];
             uint32_t cur = current_frame[y][x];
             
@@ -53,22 +81,22 @@ void update_background(ThermalProcessor* processor, const uint8_t current_frame[
     processor->background_update_counter++;
 }
 
-void subtract_frames(const ThermalProcessor* processor, const uint8_t current_frame[IMAGE_HEIGHT][IMAGE_WIDTH], uint8_t output[IMAGE_HEIGHT][IMAGE_WIDTH]) {
+void subtract_frames(const ThermalProcessor* processor, const uint8_t current_frame[HEIGHT][WIDTH], uint8_t output[HEIGHT][WIDTH]) {
     if (!processor || !current_frame || !output) return;
     
-    for (int y = 0; y < IMAGE_HEIGHT; y++) {
-        for (int x = 0; x < IMAGE_WIDTH; x++) {
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
             int32_t diff = (int32_t)current_frame[y][x] - (int32_t)processor->background[y][x];
             output[y][x] = clamp_u8(diff);
         }
     }
 }
 
-void erode_3x3(const uint8_t input[IMAGE_HEIGHT][IMAGE_WIDTH], uint8_t output[IMAGE_HEIGHT][IMAGE_WIDTH]) {
+void erode_3x3(const uint8_t input[HEIGHT][WIDTH], uint8_t output[HEIGHT][WIDTH]) {
     if (!input || !output) return;
     
-    for (int y = 0; y < IMAGE_HEIGHT; y++) {
-        for (int x = 0; x < IMAGE_WIDTH; x++) {
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
             uint8_t min_val = 255;
             
             // 3x3 neighborhood
@@ -86,11 +114,11 @@ void erode_3x3(const uint8_t input[IMAGE_HEIGHT][IMAGE_WIDTH], uint8_t output[IM
     }
 }
 
-void dilate_3x3(const uint8_t input[IMAGE_HEIGHT][IMAGE_WIDTH], uint8_t output[IMAGE_HEIGHT][IMAGE_WIDTH]) {
+void dilate_3x3(const uint8_t input[HEIGHT][WIDTH], uint8_t output[HEIGHT][WIDTH]) {
     if (!input || !output) return;
     
-    for (int y = 0; y < IMAGE_HEIGHT; y++) {
-        for (int x = 0; x < IMAGE_WIDTH; x++) {
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
             uint8_t max_val = 0;
             
             // 3x3 neighborhood
@@ -108,7 +136,7 @@ void dilate_3x3(const uint8_t input[IMAGE_HEIGHT][IMAGE_WIDTH], uint8_t output[I
     }
 }
 
-void gaussian_blur_3x3(const uint8_t input[IMAGE_HEIGHT][IMAGE_WIDTH], uint8_t output[IMAGE_HEIGHT][IMAGE_WIDTH]) {
+void gaussian_blur_3x3(const uint8_t input[HEIGHT][WIDTH], uint8_t output[HEIGHT][WIDTH]) {
     if (!input || !output) return;
     
     /*
@@ -123,8 +151,8 @@ void gaussian_blur_3x3(const uint8_t input[IMAGE_HEIGHT][IMAGE_WIDTH], uint8_t o
         {1, 2, 1}
     };
     
-    for (int y = 0; y < IMAGE_HEIGHT; y++) {
-        for (int x = 0; x < IMAGE_WIDTH; x++) {
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
             uint32_t sum = 0;
             
             for (int dy = -1; dy <= 1; dy++) {
@@ -139,19 +167,19 @@ void gaussian_blur_3x3(const uint8_t input[IMAGE_HEIGHT][IMAGE_WIDTH], uint8_t o
     }
 }
 
-void distance_transform(const uint8_t input[IMAGE_HEIGHT][IMAGE_WIDTH], uint8_t output[IMAGE_HEIGHT][IMAGE_WIDTH]) {
+void distance_transform(const uint8_t input[HEIGHT][WIDTH], uint8_t output[HEIGHT][WIDTH]) {
     if (!input || !output) return;
     
     // Initialize: 0 for background, max for foreground
-    for (int y = 0; y < IMAGE_HEIGHT; y++) {
-        for (int x = 0; x < IMAGE_WIDTH; x++) {
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
             output[y][x] = (input[y][x] > 128) ? DT_MAX_DISTANCE : 0;
         }
     }
     
     // Forward pass: propagate distances from top-left
-    for (int y = 0; y < IMAGE_HEIGHT; y++) {
-        for (int x = 0; x < IMAGE_WIDTH; x++) {
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
             if (output[y][x] == 0) continue;
             
             uint8_t min_dist = DT_MAX_DISTANCE;
@@ -172,18 +200,18 @@ void distance_transform(const uint8_t input[IMAGE_HEIGHT][IMAGE_WIDTH], uint8_t 
     }
     
     // Backward pass: propagate distances from bottom-right
-    for (int y = IMAGE_HEIGHT - 1; y >= 0; y--) {
-        for (int x = IMAGE_WIDTH - 1; x >= 0; x--) {
+    for (int y = HEIGHT - 1; y >= 0; y--) {
+        for (int x = WIDTH - 1; x >= 0; x--) {
             if (output[y][x] == 0) continue;
             
             uint8_t min_dist = output[y][x];
             
             // Check bottom and right neighbors
-            if (y < IMAGE_HEIGHT - 1 && output[y + 1][x] > 0) {
+            if (y < HEIGHT - 1 && output[y + 1][x] > 0) {
                 uint8_t bottom_dist = (output[y + 1][x] > 1) ? output[y + 1][x] - 1 : 1;
                 if (bottom_dist < min_dist) min_dist = bottom_dist;
             }
-            if (x < IMAGE_WIDTH - 1 && output[y][x + 1] > 0) {
+            if (x < WIDTH - 1 && output[y][x + 1] > 0) {
                 uint8_t right_dist = (output[y][x + 1] > 1) ? output[y][x + 1] - 1 : 1;
                 if (right_dist < min_dist) min_dist = right_dist;
             }
@@ -198,14 +226,14 @@ void distance_transform(const uint8_t input[IMAGE_HEIGHT][IMAGE_WIDTH], uint8_t 
 /**
  * @brief Helper: Flood fill to label connected components (watershed)
  */
-static void flood_fill_label(uint8_t labeled[IMAGE_HEIGHT][IMAGE_WIDTH], 
-                            const uint8_t distance_map[IMAGE_HEIGHT][IMAGE_WIDTH],
+static void flood_fill_label(uint8_t labeled[HEIGHT][WIDTH], 
+                            const uint8_t distance_map[HEIGHT][WIDTH],
                             int start_y, int start_x, uint8_t label,
                             uint16_t* area, int* centroid_x, int* centroid_y) {
     if (label == 0 || labeled[start_y][start_x] != 0) return;
     
-    int stack_y[IMAGE_SIZE];
-    int stack_x[IMAGE_SIZE];
+    int stack_y[SIZE];
+    int stack_x[SIZE];
     int stack_ptr = 0;
     
     // Push initial pixel
@@ -223,7 +251,7 @@ static void flood_fill_label(uint8_t labeled[IMAGE_HEIGHT][IMAGE_WIDTH],
         int y = stack_y[stack_ptr];
         int x = stack_x[stack_ptr];
         
-        if (x < 0 || x >= IMAGE_WIDTH || y < 0 || y >= IMAGE_HEIGHT) continue;
+        if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) continue;
         if (labeled[y][x] != 0) continue;
         if (distance_map[y][x] == 0) continue;
         
@@ -233,7 +261,7 @@ static void flood_fill_label(uint8_t labeled[IMAGE_HEIGHT][IMAGE_WIDTH],
         *centroid_y += y;
         
         // Push 4-connected neighbors
-        if (stack_ptr + 4 <= IMAGE_SIZE) {
+        if (stack_ptr + 4 <= SIZE) {
             stack_y[stack_ptr] = y - 1; stack_x[stack_ptr] = x; stack_ptr++;
             stack_y[stack_ptr] = y + 1; stack_x[stack_ptr] = x; stack_ptr++;
             stack_y[stack_ptr] = y;     stack_x[stack_ptr] = x - 1; stack_ptr++;
@@ -242,7 +270,7 @@ static void flood_fill_label(uint8_t labeled[IMAGE_HEIGHT][IMAGE_WIDTH],
     }
 }
 
-uint8_t watershed(const uint8_t distance_map[IMAGE_HEIGHT][IMAGE_WIDTH], 
+uint8_t watershed(const uint8_t distance_map[HEIGHT][WIDTH], 
                   ThermalProcessor* processor,
                   DetectedPerson detected_people[],
                   uint8_t max_people) {
@@ -254,8 +282,8 @@ uint8_t watershed(const uint8_t distance_map[IMAGE_HEIGHT][IMAGE_WIDTH],
     uint8_t num_people = 0;
     
     // Find local maxima and label from them (watershed source points)
-    for (int y = 1; y < IMAGE_HEIGHT - 1 && num_people < max_people; y++) {
-        for (int x = 1; x < IMAGE_WIDTH - 1 && num_people < max_people; x++) {
+    for (int y = 1; y < HEIGHT - 1 && num_people < max_people; y++) {
+        for (int x = 1; x < WIDTH - 1 && num_people < max_people; x++) {
             if (processor->labeled_image[y][x] != 0) continue;
             if (distance_map[y][x] == 0) continue;
             
@@ -289,8 +317,8 @@ uint8_t watershed(const uint8_t distance_map[IMAGE_HEIGHT][IMAGE_WIDTH],
                     num_people++;
                 } else {
                     // Remove this label if area is invalid
-                    for (int yy = 0; yy < IMAGE_HEIGHT; yy++) {
-                        for (int xx = 0; xx < IMAGE_WIDTH; xx++) {
+                    for (int yy = 0; yy < HEIGHT; yy++) {
+                        for (int xx = 0; xx < WIDTH; xx++) {
                             if (processor->labeled_image[yy][xx] == label) {
                                 processor->labeled_image[yy][xx] = 0;
                             }
@@ -305,7 +333,7 @@ uint8_t watershed(const uint8_t distance_map[IMAGE_HEIGHT][IMAGE_WIDTH],
 }
 
 uint8_t process_thermal_frame(ThermalProcessor* processor,
-                              const uint8_t current_frame[IMAGE_HEIGHT][IMAGE_WIDTH],
+                              const uint8_t current_frame[HEIGHT][WIDTH],
                               DetectedPerson detected_people[],
                               uint8_t max_people) {
     if (!processor || !current_frame || !detected_people || max_people == 0) return 0;
@@ -316,12 +344,12 @@ uint8_t process_thermal_frame(ThermalProcessor* processor,
     subtract_frames(processor, current_frame, processor->work_buffer);
     
     // Step 2: Morphological opening (erosion followed by dilation)
-    uint8_t eroded[IMAGE_HEIGHT][IMAGE_WIDTH];
+    uint8_t eroded[HEIGHT][WIDTH];
     erode_3x3(processor->work_buffer, eroded);
     dilate_3x3(eroded, processor->work_buffer);
     
     // Step 3: Gaussian blur for preprocessing
-    uint8_t blurred[IMAGE_HEIGHT][IMAGE_WIDTH];
+    uint8_t blurred[HEIGHT][WIDTH];
     gaussian_blur_3x3(processor->work_buffer, blurred);
     
     // Step 4: Distance transform

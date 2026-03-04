@@ -4,24 +4,6 @@
 #include <stdint.h>
 #include <stddef.h>
 
-// Image dimensions
-#define IMAGE_WIDTH 32
-#define IMAGE_HEIGHT 24
-#define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_HEIGHT)
-
-// Maximum number of detected people
-#define MAX_PEOPLE 20
-
-// Gaussian blur kernel (3x3)
-#define GAUSSIAN_KERNEL_3X3_SCALE 16  // Fixed-point scale factor
-
-// Distance transform parameters
-#define DT_MAX_DISTANCE 255
-
-// Watershed parameters
-#define MIN_PERSON_AREA 10      // Minimum pixels to be a person
-#define MAX_PERSON_AREA 200     // Maximum pixels to be a person
-
 /**
  * @struct DetectedPerson
  * @brief Represents a detected person in the thermal image
