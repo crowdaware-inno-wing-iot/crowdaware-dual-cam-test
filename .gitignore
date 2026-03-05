@@ -43,3 +43,7 @@
 # Python virtual environment
 .venv/
 venv/
+
+# VSCode settings
+.vscode/
+vscode/

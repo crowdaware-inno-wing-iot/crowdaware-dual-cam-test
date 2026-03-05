@@ -56,11 +56,6 @@ void loop() {
     // Convert float values to 8-bit grayscale (0-255)
     convert_to_8bit_image(mlx_frame, thermal_image);
 
-    // intermediate buffers for binary output
-    uint8_t step1[IMAGE_HEIGHT][IMAGE_WIDTH];
-    uint8_t step2[IMAGE_HEIGHT][IMAGE_WIDTH];
-    uint8_t step3[IMAGE_HEIGHT][IMAGE_WIDTH];
-
     // Background initialization phase
     if (bg_init_counter < BG_FRAME_COUNT) {
         // Use exponential moving average for background (lower alpha for slower convergence)
@@ -70,53 +65,51 @@ void loop() {
         bg_init_counter++;
         
         if (bg_init_counter % 5 == 0) {
-            Serial.print("Background init: ");
-            Serial.print(BG_FRAME_COUNT - bg_init_counter);
-            Serial.println(" frames remaining");
+            DEBUG_PRINT("Background init: ");
+            DEBUG_PRINT(BG_FRAME_COUNT - bg_init_counter);
+            DEBUG_PRINTLN(" frames remaining");
         }
         return; // Skip processing during background initialization
     }
-    
-    // Process thermal frame, also fill steps 1–3
+
+    // Process thermal frame to detect people
     uint8_t num_detected = process_thermal_frame(
         &thermal_processor,
         (const uint8_t (*)[IMAGE_WIDTH])thermal_image,
         detected_people,
-        MAX_PEOPLE,
-        step1,
-        step2,
-        step3
+        MAX_PEOPLE
     );
     
-    // Update background with current frame (adaptive)
-    uint8_t bg_alpha = 15; // Slower background update after initialization
-    update_background(&thermal_processor, (const uint8_t (*)[IMAGE_WIDTH])thermal_image, bg_alpha);
+    if (num_detected == 0) {
+        // Update background only when no people are detected to avoid contamination
+        uint8_t bg_alpha = 5; // Slower background update after initialization
+        update_background(&thermal_processor, (const uint8_t (*)[IMAGE_WIDTH])thermal_image, bg_alpha);
+    }
     
     // Output results
-    output_detection_results(num_detected, step1, step2, step3);
+    output_detection_results(num_detected, &thermal_processor);
 }
 
 /**
  * @brief Output detected human coordinates to serial
  * Format depends on SERIAL_OUTPUT_MODE in config.h
  */
-void output_detection_results(uint8_t num_detected,
-                              uint8_t step1[IMAGE_HEIGHT][IMAGE_WIDTH],
-                              uint8_t step2[IMAGE_HEIGHT][IMAGE_WIDTH],
-                              uint8_t step3[IMAGE_HEIGHT][IMAGE_WIDTH]) {
+void output_detection_results(uint8_t num_detected, ThermalProcessor* processor) {
 #if SERIAL_OUTPUT_MODE == 1
     // Packet structure:
     // orig(768) + step1(768) + step2(768) + step3(768) +
     // num_detected(1) + 4*num_detected
 
+    uint8_t header[4] = {0xFE, 0x01, 0xFE, 0x01};
+    Serial.write((uint8_t*)header, 4);
     uint16_t packet_size = IMAGE_SIZE * 4 + 1 + (4 * num_detected);
     Serial.write((uint8_t*)&packet_size, sizeof(packet_size));
 
     // send four images in row-major order
     Serial.write((uint8_t*)thermal_image, IMAGE_SIZE);
-    Serial.write((uint8_t*)step1, IMAGE_SIZE);
-    Serial.write((uint8_t*)step2, IMAGE_SIZE);
-    Serial.write((uint8_t*)step3, IMAGE_SIZE);
+    Serial.write((uint8_t*)processor->background, IMAGE_SIZE);
+    Serial.write((uint8_t*)processor->distance_map, IMAGE_SIZE);
+    Serial.write((uint8_t*)processor->labeled_image, IMAGE_SIZE);
 
     Serial.write(num_detected);
     for (uint8_t i = 0; i < num_detected; i++) {

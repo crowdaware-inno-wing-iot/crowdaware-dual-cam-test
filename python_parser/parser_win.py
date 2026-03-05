@@ -4,15 +4,19 @@ import cv2
 import struct
 import time
 
-# --- Configuration ---
-SERIAL_PORT = 'COM4'  # Change this to your serial port (e.g., 'COM3' on Windows)
+# ------------------------------
+# Configuration
+# ------------------------------
+SERIAL_PORT = 'COM6'  # Change this to your serial port (e.g., 'COM3' on Windows)
 BAUD_RATE = 57600
 IMAGE_WIDTH = 32
 IMAGE_HEIGHT = 24
 DISPLAY_WIDTH = 320  # Resized width for display
 DISPLAY_HEIGHT = 240 # Resized height for display
 
-# --- Main Program ---
+# ------------------------------
+# Main Program
+# ------------------------------
 def main():
     try:
         # Initialize serial connection
@@ -32,8 +36,27 @@ def main():
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
     cv2.imshow("Thermal Detection", blank_image)
 
+    last_sync_time = time.time()
+
     while True:
         try:
+            sync = b''
+            while True:
+
+                HEADER = b'\xFE\x01\xFE\x01'
+                byte = ser.read(1)
+                if not byte:
+                    continue
+                sync += byte
+                if len(sync) > len(HEADER):
+                    sync = sync[-len(HEADER):]
+                if sync == HEADER:
+                    break
+                if time.time() - last_sync_time > 5:
+                    print("Still syncing... No header detected.")
+                    last_sync_time = time.time()
+                time.sleep(0.01)
+
             # read packet size
             size_bytes = ser.read(2)
             if len(size_bytes) != 2:
@@ -74,9 +97,14 @@ def main():
             # convert to images
             def to_display(img_bytes):
                 arr = np.frombuffer(img_bytes, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH))
+                arr_flip = np.flip(arr, axis=1)  # flip horizontally
                 norm = cv2.normalize(arr, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                 col = cv2.applyColorMap(norm, cv2.COLORMAP_INFERNO)
                 return cv2.resize(col, (DISPLAY_WIDTH, DISPLAY_HEIGHT), interpolation=cv2.INTER_NEAREST)
+            
+            def get_label_mask(step3_bytes, label):
+                arr = np.frombuffer(step3_bytes, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH))
+                return (arr == label).astype(np.uint8) * 255
 
             display_orig  = to_display(image_bytes)
             display_step1 = to_display(step1_bytes)
@@ -85,31 +113,47 @@ def main():
 
             cv2.putText(display_orig, "Raw Image", (10, 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            cv2.putText(display_step1, "Background Subtraction", (10, 20),
+            cv2.putText(display_step1, "Background", (10, 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            cv2.putText(display_step2, "Morphological Opening", (10, 20),
+            cv2.putText(display_step2, "Distance Map", (10, 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            cv2.putText(display_step3, "Gaussian Blur", (10, 20),
+            cv2.putText(display_step3, "Watershed", (10, 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
             # draw detections on original only
             scale_x = DISPLAY_WIDTH / IMAGE_WIDTH
             scale_y = DISPLAY_HEIGHT / IMAGE_HEIGHT
-            for person in detected_people:
-                x_orig, y_orig, area = person['x'], person['y'], person['area']
-                display_x = int(x_orig * scale_x)
-                display_y = int(y_orig * scale_y)
-                box_half = 5
-                x1 = max(0, display_x - box_half)
-                y1 = max(0, display_y - box_half)
-                x2 = min(DISPLAY_WIDTH - 1, display_x + box_half)
-                y2 = min(DISPLAY_HEIGHT - 1, display_y + box_half)
 
-                cv2.rectangle(display_orig, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(display_orig, f"({x_orig},{y_orig})", (x1, y1 - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                cv2.putText(display_orig, f"Area:{area}", (x1, y2 + 15),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            for idx, person in enumerate(detected_people):
+                x_orig, y_orig, area = person['x'], person['y'], person['area']
+
+                # Extract blob mask from step3
+                label = idx + 1  # assuming labels are 1..N
+                mask_small = get_label_mask(step3_bytes, label)
+
+                # Resize mask to display size
+                mask_large = cv2.resize(mask_small, (DISPLAY_WIDTH, DISPLAY_HEIGHT), interpolation=cv2.INTER_NEAREST)
+
+                # Create colored overlay
+                overlay = display_orig.copy()
+                overlay[mask_large > 0] = (0, 255, 0)  # bright green blob
+
+                # Blend overlay
+                display_orig = cv2.addWeighted(display_orig, 0.7, overlay, 0.3, 0)
+
+                # Improved readable text
+                text_pos = (int(x_orig * scale_x), int(y_orig * scale_y))
+
+                # Black outline
+                cv2.putText(display_orig, f"({x_orig},{y_orig})", text_pos,
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+                cv2.putText(display_orig, f"({x_orig},{y_orig})", text_pos,
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1)
+
+                cv2.putText(display_orig, f"Area:{area}", (text_pos[0], text_pos[1] + 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+                cv2.putText(display_orig, f"Area:{area}", (text_pos[0], text_pos[1] + 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1)
 
             # compose 2×2 grid
             top = np.hstack((display_orig, display_step1))
