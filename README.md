@@ -5,7 +5,9 @@ An offline, edge‑run version of CrowdAware consisting of:
 - YOLO26n exported to ONNX for lightweight detection on Pi
 This repository is designed for fully offline deployment for data collection and testing of algoeithm accuracy.
 
-### 📦 Repository Structure
+<img width="1684" height="738" alt="image" src="https://github.com/user-attachments/assets/e6ff826f-2262-4b1c-a056-4e64b7b43e2d" />
+
+## Repository Structure
 ```
 ├── node/                 # Arduino/ESP32 code for Heltec LoRa V3
 │   ├── config.h
@@ -20,7 +22,7 @@ This repository is designed for fully offline deployment for data collection and
 ```
 
 
-## 🧩 System Overview
+## System Overview
 ### Heltec LoRa V3 Node (ESP32)
 - Reads 32×24 thermal frames from MLX90640
 - Performs background subtraction + blob detection
@@ -33,7 +35,7 @@ This repository is designed for fully offline deployment for data collection and
 - Runs YOLO26n (ONNX) on RGB camera frames (RPi Camera Module 3)
 - Fuses thermal + RGB detections for crowd estimation
 
-## 🛠️ Hardware Requirements
+## Hardware Requirements
 ### Node
 - Heltec WiFi LoRa 32 V3 (ESP32‑S3)
 - MLX90640 (32×24, I²C)
@@ -44,7 +46,7 @@ This repository is designed for fully offline deployment for data collection and
 - MicroSD card (32GB+)
 - USB‑C power supply
 
-## 🧪 Software Requirements
+## Software Requirements
 ### Raspberry Pi (Python)
 Install the usual scientific stack:
 ```pip install numpy==2.2.4```
@@ -66,7 +68,7 @@ Install via Arduino IDE or PlatformIO:
 - Wire library (built‑in)
 - No external MLX90640 library needed (included in repo)
 
-## 🚀 Getting Started
+## Getting Started
 ### 1. Flash the Node
 Open /node/ in Arduino IDE or PlatformIO.
 Configure pins + I²C speed in config.h:
@@ -93,7 +95,7 @@ This will:
 - Parse incoming thermal frames
 - Display fused detections
 
-## 🧠 How It Works
+## How It Works
 ### Thermal Pipeline (ESP32)
 - MLX90640 raw frame → temperature map
 - Fixed‑point Gaussian smoothing
@@ -105,7 +107,7 @@ This will:
 - Bounding box filtering
 - Optional fusion with thermal detections
 
-## 🧰 Troubleshooting
+## Troubleshooting
 - **MLX90640 not detected**
 Check wiring + I²C pull‑ups. The node prints debug messages if SERIAL_OUTPUT_MODE == 0.
 - **OpenCV import fails on Raspberry Pi**
@@ -113,6 +115,6 @@ Use an older version of OpenCV.
 - **Thermal frames look noisy**
 Ensure the sensor's power supply is properly decoupled; MLX90640 is sensitive to ambient changes.
 
-### 📄 License
+### License
 MIT License for all original code.
 MLX90640 API is © Melexis N.V. under Apache 2.0.
