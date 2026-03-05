@@ -20,4 +20,14 @@ const float TEMP_MIN = 10.0f;
 const float TEMP_MAX = 35.0f;
 const float TEMP_RANGE = TEMP_MAX - TEMP_MIN;
 
+// --- Serial Output Configuration ---
+#define SERIAL_OUTPUT_MODE 1  // 0 = Human-readable, 1 = Computer-readable (binary)
+#if SERIAL_OUTPUT_MODE == 0
+  #define DEBUG_PRINT(x)    Serial.print(x)
+  #define DEBUG_PRINTLN(x)  Serial.println(x)
+#else
+  #define DEBUG_PRINT(x)
+  #define DEBUG_PRINTLN(x)
+#endif
+
 #endif // CONFIG_H

@@ -1,6 +1,7 @@
 #ifndef MLX_SENSOR_H
 #define MLX_SENSOR_H
 
+#include <Arduino.h>
 #include <Wire.h>
 #include "MLX90640_API.h"      // External library for MLX90640
 #include "MLX90640_I2C_Driver.h" // External library for MLX90640 I2C driver

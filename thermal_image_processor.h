@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "config.h"
 
 /**
  * @struct DetectedPerson
@@ -42,6 +43,14 @@ typedef struct {
  * @param processor Processor state structure
  */
 void thermal_processor_init(ThermalProcessor* processor);
+
+/**
+ * @brief Convert float thermal data to 8-bit grayscale image
+ * Maps temperature range to 0-255 for image processing
+ * @param thermal_frame Input thermal data (24x32 floats)
+ * @param image Output 8-bit grayscale image (24x32)   
+ */
+void convert_to_8bit_image(const float* thermal_frame, uint8_t image[IMAGE_HEIGHT][IMAGE_WIDTH]);
 
 /**
  * @brief Update the running background average
@@ -106,11 +115,17 @@ uint8_t watershed(const uint8_t distance_map[IMAGE_HEIGHT][IMAGE_WIDTH],
  * @param current_frame Current thermal image
  * @param detected_people Output array of detected people
  * @param max_people Maximum number of people to detect
+ * @param step1 Optional output buffer for step‑1 result (background subtraction)
+ * @param step2 Optional output buffer for step‑2 result (morphological opening)
+ * @param step3 Optional output buffer for step‑3 result (gaussian blur)
  * @return Number of detected people
  */
 uint8_t process_thermal_frame(ThermalProcessor* processor,
                               const uint8_t current_frame[IMAGE_HEIGHT][IMAGE_WIDTH],
                               DetectedPerson detected_people[],
-                              uint8_t max_people);
+                              uint8_t max_people,
+                              uint8_t step1[IMAGE_HEIGHT][IMAGE_WIDTH],
+                              uint8_t step2[IMAGE_HEIGHT][IMAGE_WIDTH],
+                              uint8_t step3[IMAGE_HEIGHT][IMAGE_WIDTH]);
 
 #endif // THERMAL_IMAGE_PROCESSOR_H
