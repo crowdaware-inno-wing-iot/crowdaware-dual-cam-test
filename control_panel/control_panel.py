@@ -189,7 +189,7 @@ class SerialReaderThread(threading.Thread):
                         thermal_people = []
                         break
                     y, x, area = struct.unpack('<BBH', packet_data[idx_ptr:idx_ptr+4])
-                    thermal_people.append({"x": x, "y": y, "area": area})
+                    thermal_people.append({"x": IMAGE_WIDTH - x, "y": IMAGE_HEIGHT - y, "area": area})
                     idx_ptr += 4
                 
                 # Put data into queue for GUI to process
@@ -301,7 +301,7 @@ class ControlPanelApp:
         self.status_frame.grid(row=2, column=0, columnspan=2, pady=5, sticky="ew")
 
         # Configure grid weights for resizing
-        self.main_frame.grid_columnconfigure(0, weight=3) # Image frame takes more space
+        self.main_frame.grid_columnconfigure(0, weight=5) # Image frame takes more space
         self.main_frame.grid_columnconfigure(1, weight=1)
         self.main_frame.grid_rowconfigure(1, weight=1) # Log frame expands vertically
 
